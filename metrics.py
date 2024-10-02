@@ -1,107 +1,6 @@
-"""
-\begin{center}
-\begin{tabular}{|c|l|l|}
-\hline
-Dimension & ID & Metric Description \\
-\hline
-CD1: Function & C1 & Cyclomatic complexity \\
-\hline
-\multirow{3}{*}{CD2: Loop Structures} & C2 & \# of loops \\
-\cline { 2 - 3 }
- & C3 & \# of nested loops \\
-\cline { 2 - 3 }
- & C4 & Maximum nesting level of loops \\
-\hline
-\end{tabular}
-\end{center}
-
-TABLE II: Vulnerability Metrics of a Function
-
-\begin{center}
-\begin{tabular}{|c|c|l|}
-\hline
-Dimension & ID & Metric Description \\
-\hline
-VD1: & V1 & \# of parameter variables \\
-\cline { 2 - 3 }
-Dependency & V2 & \# of variables as parameters for callee function \\
-\hline\hline
-\multirow{3}{*}{VD2:} & V3 & \# of pointer arithmetic \\
-\cline { 2 - 3 }
- & V4 & \# of variables involved in pointer arithmetic \\
-\cline { 2 - 3 }
- & V5 & Max pointer arithmetic a variable is involved in \\
-\hline
-\multirow{3}{*}{}\begin{tabular}{c}
-VD3: \\
-Control \\
-Structures \\
-\end{tabular} & V6 & \# of nested control structures \\
-\cline { 2 - 3 }
- & V7 & Maximum nesting level of control structures \\
-\cline { 2 - 3 }
- & V8 & Maximum of control-dependent control structures \\
-\cline { 2 - 3 }
- & V9 & Maximum of data-dependent control structures \\
-\cline { 2 - 3 }
- & V10 & \# of if structures without else \\
-\cline { 2 - 3 }
- & V11 & \# of variables involved in control predicates \\
-\hline
-\end{tabular}
-\end{center}
-
-\section{B. Function Binning}
-Different vulnerabilities often have different levels of complexity. To identify vulnerabilities at all levels of complexity, in the first step, we categorize all functions in the target application into a set of bins based on complexity metrics. As a result, each bin represents a different level of complexity. Afterwards, the second step (§ II-C) plays the prediction role via ranking. Such a binning-and-ranking approach is designed to avoid missing low-complexity vulnerable functions.
-
-Complexity Metrics. By "complexity", we refer to the approximate number of paths in a function, and derive the complexity metrics of a function from its structural complexity. A function often has loop and control structures, which are the main sources of structural complexity. Cyclomatic complexity [39] is a widely-used metric to measure the complexity, but without reflection of the loop structures. Based on such understanding, we introduce the complexity of a function with respect to these two complementary dimensions, as shown in Table I.
-
-Function metric (C1) captures the standard cyclomatic complexity [39] of a function, i.e., the number of linearly independent paths through a function. A higher value of C 1 means that the function is likely more difficult to analyze or test
-
-Loop structure metrics ( 2 - C 4 ) reflect the complexity resulting from loops, which can drastically increase the number of paths in the function. Metrics include the number of loops, the number of nested loops, and the maximum nesting level of loops. Loops are challenging in program analysis [68] and hinder vulnerability analysis. Basically, the higher these metrics the more (and possibly longer) paths need to be considered and the more difficult to analyze the function.
-
-Binning Strategy. Given the values of these complexity metrics for functions in the target application, we compute a complexity score for each function by adding up all the complexity metric values, and then group the functions with the same score into the same bin. Here we do not use a range-based binning strategy (i.e., grouping the functions whose scores fall into the same range into the same bin) as it is hard to determine the suitable granularity of the range. Such a simple strategy not only makes our framework lightweight, but also works well, as evidenced by our experimental study in $\S$ IV-C.
-
-\section{Function Ranking}
-Different from the structural complexity metrics, in the second step, we derive a new set of vulnerability metrics according to the characteristics of general causes of vulnerabilities and then rank the functions and identify the top ones in each bin as potentially vulnerable based on the vulnerability metrics Existing metric-based techniques [44, 45] rarely employ any vulnerability-oriented metrics, and make no differentiation between complexity metrics and vulnerability metrics. Here,\\
-
-we propose and incorporate vulnerability metrics to have a high potential of characterizing and identifying vulnerable functions. Vulnerability Metrics. Most critical types of vulnerabilities in $\mathrm{C} / \mathrm{C}++$ programs are directly or indirectly caused by memory management errors [61] and/or missing checks on some sensitive variables [74] (e.g., pointers). Resulting vulnerabilities include but are not limited to memory errors, access control errors (e.g., missing checks on user permission), and information leakage. Actually, the root causes of many denial of service and code execution vulnerabilities can also be traced back to these causes. The above mentioned types account for more than $70 \%$ of all vulnerabilities [11]. Hence, it is possible to define a set of vulnerability metrics that are compatible with major vulnerability types. Here we would not favor any specific types of vulnerabilities, e.g., to include metrics like division operation which is closely related to divide-by-zero, while the exploration of type-specific metrics is worth of investigation in the future. With either high or low complexity scores, vulnerable functions we focus on are mainly with complicated and compact computations, which are independent from the number of paths in the function. Based on these observations we introduce the vulnerability metrics of a function w.r.t. three dimensions, as summarized in Table II.
-
-Dependency metrics (V1-V2) characterize the dependency relationship of a function with other functions, i.e., the number of parameter variables of the function and the number of variables prepared by the function as parameters of function calls. The more dependent with other functions, the more difficult to track the interaction.
-
-Pointer metrics (V3-V5) capture the manipulation of pointers, i.e., the number of pointer arithmetic, the number of variables used in pointer arithmetic, and the maximum number of pointer arithmetic a variable is involved in. Member access operations (e.g., $\mathrm{ptr} \rightarrow \mathrm{m}$ ), deference operations (e.g., *ptr), incrementing pointers (e.g., ptr++), and decrementing pointers (e.g., prt--) are all pointer arithmetics. The number of pointer arithmetic can be obtained from the Abstract Syntax Tree (AST) of the function via simple counting. These operations are closely related to sensitive memory manipulations, which can increase the risk of memory management errors.
-
-Alongside, we count how many unique variables are used in the pointer arithmetic operations. The more variables get involved, the more challenging for programmers to make correct decisions. For these variables, we also examine how many pointer arithmetic operations they are involved in and record the maximum value. Frequent operations on the same pointer
-make it harder to track its value and guarantee the correctness. In a word, the higher these metrics, the higher chance to cause complicated memory management problems, and thus higher chance to dereference null or out-of-bound pointers.
-
-Control structure metrics (V6-V11) capture the vulnerability due to highly coupled and dependent control structures (such as if and while), i.e., the number of nested control structures pairs, the maximum nesting level of control structures, the maximum number of control structures that are control- or data-dependent, the number of if structures without explicit else statement, and the number of variables that are involved in the data-dependent control structures. We explain the above metrics with an example (Fig. 2) calculating Fibonacci series. There are two pairs of nested control structures, if at Line 7 respectively with if at Line 8 and for at Line 12. Obviously, the maximum nesting level is two, with the outer structure as if at Line 7. The maximum of control-dependent control structures is 3, including if at Line 7 and Line 8, and for at Line 12. The maximum of data-dependent control structures is four since conditions in all four control structures make checks on variable $n$. All three if statements are without else. There are two variables, i.e., $n$ and $i$ involved in the predicates of control structures. Actually, the more variables used in the predicates, the more likely to makes error on sanity checks. The higher these metrics, the harder for programmers to follow, and the more difficult to reach the deeper part of the function during vulnerability hunting. Stand-alone if structures are suspicious for missing checks on the implicit else branches.
-\begin{verbatim}
-    void fibonacci(int *res, int n) {
-    if (n<=0){
-    if ( n<==
-    }
-    res[0] = 0
-    res[1] = 1;
-    if (n> 1) {
-        res[2] = 1
-        return
-    }
-        for(int i = 2; i <= n; i++) {
-        res[i] = res[i-1]+ res[i-2]
-    }
-}}
-\end{verbatim}
-
-Fig. 2: A Function to Calculate Fibonacci Series
-
-There usually exists a proportional relation between complexity and vulnerability metrics, because the more complex the (independent path and loop) structures of a function, the higher chance the variables, pointers and coupled control structures are involved. The complexity metrics are used to approximate the number of paths in the function, which are neutral to the vulnerable characteristics. Importantly, for the set of control structure metrics used as vulnerability indicators, they describe a different aspect of properties than complexity metrics. First, whether control structures are nested or dependent, or whether if are followed by else, are independent to cyclomatic complexity metrics. Second, intensively coupled control structures are good evidence of vulnerability. Instead of directly ranking functions with complexity and/or vulnerability metrics, we propose a binning-and-ranking approach to avoid missing less complicated but vulnerable functions, as will be evidenced in $\S$ IV-B. Ranking Strategy. Based on the values of these metrics for the functions, we compute a vulnerability score for each function by adding up all the metric values, rank the functions in each bin according to the scores, and cumulatively identify the top functions with highest scores in each bin as potential vulnerable functions. During the selection, we identify the top $k$ functions from each bin where $k$ is initially 1 , and increase by 1 in each selection iteration. Notice that we may take more than $k$ functions as we treat functions with the same score equally. This selection stops when an appropriate portion (i.e., $p$ ) of functions has been selected. Here $p$ can be set by users. Similar to the binning strategy, we adopt a simple ranking strategy to make our framework both lightweight and effective.
-
-"""
-
-
 import tree_sitter_cpp as tscpp
 from tree_sitter import Language, Parser
-from utils import pretty_print_node
+from tree_sitter import Node
 
 CPP_LANGUAGE = Language(tscpp.language())
 parser = Parser(CPP_LANGUAGE)
@@ -117,32 +16,113 @@ CONTROL_STRUCTURES = {
     "switch_statement"
 }
 
+def funcdef(root):
+    while root.type != "function_definition":
+        try:
+            root = root.children[0]
+        except IndexError:
+            print("No function definition found.")
+            return None
+    return root
+
 def find_funcdef(func):
     def wrapper(root):
-        while root.type != "function_definition":
-            try:
-                root = root.children[0]
-            except IndexError:
-                print("No function definition found.")
-                break
+        root = funcdef(root)
         return func(root)
     return wrapper
 
-def n_loops(node): # C2
-    if node.type in LOOPS:
-        return 1 + sum(n_loops(child) for child in node.children)
-    return sum(n_loops(child) for child in node.children)
+def callable(cls):
+    def wrapper(code):
+        instance = cls()
+        return instance(code)
+    return wrapper
 
-def n_nested_loops(node, inside_loop=False): # C3
+class Metric:
+    # @staticmethod
+    def __call__(self, code: str | Node):
+        if isinstance(code, Node):
+            root = code
+        else:
+            root = parser.parse(
+                bytes(
+                    code,
+                    "utf8"
+                )
+            ).root_node
+
+        # instance = cls()
+        root = self._get_funcdef(root)
+        return self._visit(root)
+    
+    def _get_funcdef(self, root):
+        return funcdef(root)
+
+@callable
+class n_loops(Metric):
+    def __init__(self):
+        self.count = 0
+
+    def _visit(self, node):
+        if node.type in LOOPS:
+            self.count += 1
+        for child in node.children:
+            self._visit(child)
+        return self.count
+    
+@callable
+class n_nested_loops(Metric):
     """Number of loops that are nested inside at least one other loop."""
+
+    def __init__(self):
+        self.count = 0
+
+    def _visit(self, node, inside_loop=False):
+        if node.type in LOOPS:
+            self.count += 1 if inside_loop else 0
+            for child in node.children:
+                self._visit(child, inside_loop=True)
+        else:
+            for child in node.children:
+                self._visit(child, inside_loop)
+        return self.count
+"""
+@callable
+class max_nesting_level_of_loops(Metric):
+    def __init__(self):
+        self.max = 0
+
+    def _visit(self, node, level=0):
+        increment = 1 if node.type in LOOPS else 0
+        return increment + max((self._visit(child, level + increment) for child in node.children), default=0)
+"""
+
+def n_loops(node): # C2
+    increment = 1 if node.type in LOOPS else 0
+    return increment + sum(n_loops(child) for child in node.children)
+    
+def n_nested_loops(node, inside_loop=False): # C3
+    """
+    # works
     if node.type in LOOPS:
         return (1 if inside_loop else 0) + sum(n_nested_loops(child, inside_loop=True) for child in node.children)
     return sum(n_nested_loops(child, inside_loop) for child in node.children)
 
-def max_nesting_level_of_loops(node): # C4
-    if node.type in LOOPS:
-        return 1 + max((max_nesting_level_of_loops(child) for child in node.children), default=0)
-    return max((max_nesting_level_of_loops(child) for child in node.children), default=0)
+    # doesn't work
+    increment = 1 if node.type in LOOPS else 0
+    inside_loop = inside_loop or node.type in LOOPS
+    return increment + sum(n_nested_loops(child, inside_loop) for child in node.children)
+    """
+
+    increment = 1 if node.type in LOOPS and inside_loop else 0
+    inside_loop = inside_loop or node.type in LOOPS
+    return increment + sum(n_nested_loops(child, inside_loop) for child in node.children)
+
+def max_nesting_level_of_loops(node, level=0): # C4
+    increment = 1 if node.type in LOOPS else 0
+    return increment + max(
+        (max_nesting_level_of_loops(child, level + increment)
+            for child in node.children),
+        default=0)
 
 
 def parameters(funcdef) -> list:
@@ -166,9 +146,19 @@ def get_body(funcdef):
     return funcdef.child_by_field_name("body")
 
 
-def get_identifier(declarator):
+def get_identifier(declarator: Node):
     """Given a declaration node, return the name of the declared variable"""
-    pass
+    if declarator is None:
+        return None
+    if declarator.type == "pointer_declarator":
+        return declarator.child_by_field_name("declarator".text)
+    elif declarator.type == "function_declarator":
+        parenthesized_decl = declarator.child_by_field_name("declarator")
+        pointer_decl = parenthesized_decl.child(1)
+        decl = pointer_decl.child_by_field_name("declarator")
+        return decl.text
+    else:
+        return declarator.text
 
 
 @find_funcdef
@@ -179,16 +169,7 @@ def n_variables_as_parameters(funcdef): # V2
     params = set()
     for param in param_nodes:
         declarator = param.child_by_field_name("declarator")
-        if declarator.type == "pointer_declarator":
-            params.add(declarator.child_by_field_name("declarator").text)
-        elif declarator.type == "function_declarator":
-            parenthesized_decl = declarator.child_by_field_name("declarator")
-            pointer_decl = parenthesized_decl.child(1)
-            decl = pointer_decl.child_by_field_name("declarator")
-            params.add(decl.text)
-        else:
-            # params.add(declarator.child_by_field_name("identifier").text)
-            params.add(declarator.text)
+        params += get_identifier(declarator)
     variables = set()
     in_calls = set()
 
@@ -207,32 +188,7 @@ def n_variables_as_parameters(funcdef): # V2
                 variables.add(identifier.text)
             else:
                 traverse(node.child_by_field_name("declarator"), in_declaration=True)
-            '''
-            declarator = node
-            if declarator.type == "pointer_declarator":
-                variables.add(declarator.child_by_field_name("declarator").text)
-            elif declarator.type == "function_declarator":
-                parenthesized_decl = declarator.child_by_field_name("declarator")
-                print(parenthesized_decl)
-                print(parenthesized_decl.text)
-                for child in parenthesized_decl.children:
-                    print(child.type)
-                    print(child.text)
-                    print(child)
-                pointer_decl = parenthesized_decl.child(1)
-                decl = pointer_decl.child_by_field_name("declarator")
-                variables.add(decl.text)
-            elif declarator.type == "parenthesized_declarator":
-                for child in declarator.children:
-                    print(child.type)
-                    traverse(child)
-            else:
-                print(declarator)
-                variables.add(declarator.child_by_field_name("identifier").text)
-            '''
         elif node.type == "call_expression":
-            print(node)
-            print(node.text)
             for arg in node.child_by_field_name("arguments").children:
                 if arg.type == "identifier" and arg.text.decode() not in {'True', 'False'}:
                     in_calls.add(arg.text)
@@ -243,11 +199,45 @@ def n_variables_as_parameters(funcdef): # V2
             traverse(child)
     funcbody = get_body(funcdef)
     traverse(funcbody)
-    print(variables)
-    print(in_calls)
-    print(variables & in_calls)
-    print(variables & in_calls - params)
     return len(variables & in_calls - params)
+
+@callable
+class n_variables_as_parameters(Metric):
+    def __init__(self):
+        self.params = set()
+        self.variables = set()
+        self.in_calls = set()
+
+    def _visit(self, node, in_declaration=False, in_call=False):
+        if (node.type == "identifier"):
+            if in_declaration:
+                self.variables.add(node.text)
+            elif in_call and (txt := node.text) in self.variables:
+                self.in_calls.add(txt)
+        elif node.type == "declaration":
+            declarator = node.child_by_field_name("declarator")
+            self._visit(declarator, in_declaration=True)
+        elif "declarator" in node.type:
+            identifier = node.child_by_field_name("identifier")
+            if identifier is not None:
+                self.variables.add(identifier.text)
+            else:
+                self._visit(node.child_by_field_name("declarator"), in_declaration=True)
+        elif node.type == "call_expression":
+            for arg in node.child_by_field_name("arguments").children:
+                if arg.type == "identifier" and arg.text.decode() not in {'True', 'False'}:
+                    self.in_calls.add(arg.text)
+                else:
+                    self._visit(arg, in_call=True)
+        for child in node.children:
+            self._visit(child)
+        return len(self.variables & self.in_calls - self.params)
+
+    def _get_funcdef(self, root):
+        root = funcdef(root)
+        self.params = {get_identifier(param.child_by_field_name("declarator")) for param in parameters(root)}
+        return root
+
 
 def count_field_expressions(node):
     if node.type != "field_expression":
@@ -264,7 +254,7 @@ def find_base_variable_and_count_field_expressions(node):
 
 
 def pointers(node): # V3, V4, V5
-    """
+    r"""
     Pointer metrics (V3-V5) capture the manipulation of pointers, i.e., the number of pointer arithmetic, 
     the number of variables used in pointer arithmetic, and the maximum number of pointer arithmetic a variable 
     is involved in. Member access operations (e.g., $\mathrm{ptr} \rightarrow \mathrm{m}$ ), 
@@ -343,58 +333,102 @@ def max_nesting_level_of_control_structures(node): # V8
         return 1 + max((max_nesting_level_of_control_structures(child) for child in node.children), default=0)
     return max((max_nesting_level_of_control_structures(child) for child in node.children), default=0)
 
-# Function to extract variables from a condition node
-def extract_variables(condition_node):
+    
+r"""
+\begin{verbatim}
+void fibonacci(int *res, int n) {
+    if (n <= 0) {
+        return;
+    }
+    res[0] = 0;
+    res[1] = 1;
+    if (n > 1) {
+        if (n == 3) {
+            res[2] = 1;
+            return;
+        }
+        for(int i = 2; i <= n; i++) {
+            res[i] = res[i-1] + res[i-2];
+        }
+    }
+}
+\end{verbatim}
+
+Figure 2: An example of calculating Fibonacci series.
+
+Control structure metrics (V6-V11) capture the vulnerability due to highly coupled and dependent control structures 
+(such as if and while), i.e., the number of nested control structures pairs, the maximum nesting level of control
+structures, the maximum number of control structures that are control- or data-dependent, the number of if structures
+without explicit else statement, and the number of variables that are involved in the data-dependent control structures.
+We explain the above metrics with an example (Fig. 2) calculating Fibonacci series. There are two pairs of nested control
+structures, if at Line 7 respectively with if at Line 8 and for at Line 12. Obviously, the maximum nesting level is two, 
+with the outer structure as if at Line 7. The maximum of control-dependent control structures is 3, including if at Line 7 
+and Line 8, and for at Line 12. The maximum of data-dependent control structures is four since conditions in all four control 
+structures make checks on variable $n$. All three if statements are without else. There are two variables, i.e., 
+$n$ and $i$ involved in the predicates of control structures. Actually, the more variables used in the predicates, the more 
+likely to makes error on sanity checks. The higher these metrics, the harder for programmers to follow, and the more
+difficult to reach the deeper part of the function during vulnerability hunting. Stand-alone if structures are suspicious 
+for missing checks on the implicit else branches.
+"""
+
+def extract_variables(node):
     variables = set()
-    if condition_node:
-        for child in condition_node.children:
-            if child.type == "identifier":
-                variables.add(child.text)
-            else:
-                variables.update(extract_variables(child))
+    if node.type == "identifier":
+        variables.add(node.text)
+    elif node.type == "condition_clause":
+        variables |= extract_variables(node.child_by_field_name("value"))
+    elif node.type in {"binary_expression", "assignment_expression"}:
+        print(node)
+        left = node.child_by_field_name("left")
+        right = node.child_by_field_name("right")
+        for child in (left, right):
+            variables |= extract_variables(child)
+    elif node.type in {"update_expression", "field_expression"}:
+        variables |= extract_variables(node.child_by_field_name("argument"))
+    elif node.type in {"if_statement", "while_statement", "do_statement"}:
+        condition = node.child_by_field_name("condition")
+        # for child in condition.children:
+        #     variables |= extract_variables(child)
+        variables |= extract_variables(condition)
+    elif node.type == "for_statement":
+        init, condition, update = node.children[2:5]
+        for each in (init, condition, update):
+            # for child in each.children:
+            #     variables |= extract_variables(child)
+            variables |= extract_variables(each)
+    elif node.type == "do_statement":
+        raise NotImplementedError
     return variables
 
-CONTROL_STRUCTURES = {
-    "if_statement",
-    "for_statement",
-    "while_statement",
-    "do_statement",
-    "switch_statement",
-    "try_statement"
-}
 
-# Function to find control structures and count dependencies
-def find_control_structures(node): # V8, V9, V11
-    control_dependent_count = 0
-    data_dependent_count = 0
-    variables_in_conditions = set()
 
-    if node.type in ["if_statement", "for_statement", "while_statement"]:
-        # Extract variables from the condition
-        condition_node = node.child_by_field_name("condition")
-        variables_in_conditions.update(extract_variables(condition_node))
+def find_control_structures(node, inside_control_structure=False):
+    control_dependent = 0
+    data_dependent = 0
+    variables = set()
+    if node.type in CONTROL_STRUCTURES:
+        if inside_control_structure:
+            control_dependent += 1
+        print(node.text)
+        vars_involved = extract_variables(node)
+        if vars_involved:
+            print(vars_involved)
+            data_dependent += 1
+        variables.update(vars_involved)
 
-        # Check for control dependency (nested control structures)
-        for child in node.children:
-            if child.type in ["if_statement", "for_statement", "while_statement"]:
-                control_dependent_count += 1
-                nested_control_dependent, nested_data_dependent, nested_variables = find_control_structures(child)
-                control_dependent_count += nested_control_dependent
-                data_dependent_count += nested_data_dependent
-                variables_in_conditions.update(nested_variables)
-
-    # Recursively check all children
+    inside_control_structure = inside_control_structure or node.type in CONTROL_STRUCTURES
     for child in node.children:
-        nested_control_dependent, nested_data_dependent, nested_variables = find_control_structures(child)
-        control_dependent_count += nested_control_dependent
-        data_dependent_count += nested_data_dependent
-        variables_in_conditions.update(nested_variables)
+        control_dependent_child, data_dependent_child, variables_child = find_control_structures(child, inside_control_structure=inside_control_structure)
+        control_dependent += control_dependent_child
+        data_dependent += data_dependent_child
+        variables.update(variables_child)
+    return control_dependent, data_dependent, variables
+    
+        
 
-    # Count data-dependent control structures
-    if variables_in_conditions:
-        data_dependent_count += 1
 
-    return control_dependent_count, data_dependent_count, variables_in_conditions
+
+
 
 
 if __name__ == "__main__":
@@ -403,51 +437,44 @@ if __name__ == "__main__":
     # test_code = {"func": "void async_request(TALLOC_CTX *mem_ctx, struct winbindd_child *child,\n\t\t   struct winbindd_request *request,\n\t\t   struct winbindd_response *response,\n\t\t   void (*continuation)(void *private_data, BOOL success),\n\t\t   void *private_data)\n{\n\tstruct winbindd_async_request *state;\n\n\tSMB_ASSERT(continuation != NULL);\n\n\tstate = TALLOC_P(mem_ctx, struct winbindd_async_request);\n\n\tif (state == NULL) {\n\t\tDEBUG(0, (\"talloc failed\\n\"));\n\t\tcontinuation(private_data, False);\n\t\treturn;\n\t}\n\n\tstate->mem_ctx = mem_ctx;\n\tstate->child = child;\n\tstate->request = request;\n\tstate->response = response;\n\tstate->continuation = continuation;\n\tstate->private_data = private_data;\n\n\tDLIST_ADD_END(child->requests, state, struct winbindd_async_request *);\n\n\tschedule_async_request(child);\n\n\treturn;\n}", "target": 1, "cwe": [], "project": "samba", "commit_id": "c93d42969451949566327e7fdbf29bfcee2c8319", "hash": 13500245137413054717180286489878807064, "size": 31, "message": "Back-port of Volkers fix.\n\n    Fix a race condition in winbind leading to a crash\n\n    When SIGCHLD handling is delayed for some reason, sending a request to a child\n    can fail early because the child has died already. In this case\n    async_main_request_sent() directly called the continuation function without\n    properly removing the malfunctioning child process and the requests in the\n    queue. The next request would then crash in the DLIST_ADD_END() in\n    async_request() because the request pending for the child had been\n    talloc_free()'ed and yet still was referenced in the list.\n\n    This one is *old*...\n\n    Volker\n\nJeremy."}
     test_code = {"func": "void async_request(TALLOC_CTX *mem_ctx, struct winbindd_child *child,\n\t\t   struct winbindd_request *request,\n\t\t   struct winbindd_response *response,\n\t\t   void (*continuation)(void *private_data, BOOL success),\n\t\t   void *private_data)\n{\n\tstruct winbindd_async_request *state = TALLOC_P(mem_ctx, struct winbindd_async_request);\n\n\tif (state == NULL) {\n\t\tDEBUG(0, (\"talloc failed\\n\"));\n\t\tcontinuation(private_data, False);\n\t\treturn;\n\t}\n\n\tstate->mem_ctx = mem_ctx;\n\tstate->child = child;\n\tstate->request = request;\n\tstate->response = response;\n\tstate->continuation = continuation;\n\tstate->private_data = private_data;\n\n\tDLIST_ADD_END(child->requests, state, struct winbindd_async_request *);\n\n\tschedule_async_request(child);\n\n\treturn;\n}", "target": 1, "cwe": [], "project": "samba", "commit_id": "c93d42969451949566327e7fdbf29bfcee2c8319", "hash": 13500245137413054717180286489878807064, "size": 31, "message": "Back-port of Volkers fix.\n\n    Fix a race condition in winbind leading to a crash\n\n    When SIGCHLD handling is delayed for some reason, sending a request to a child\n    can fail early because the child has died already. In this case\n    async_main_request_sent() directly called the continuation function without\n    properly removing the malfunctioning child process and the requests in the\n    queue. The next request would then crash in the DLIST_ADD_END() in\n    async_request() because the request pending for the child had been\n    talloc_free()'ed and yet still was referenced in the list.\n\n    This one is *old*...\n\n    Volker\n\nJeremy."}
     # test_code = {"func": "ProcShmCreatePixmap(client)\n    register ClientPtr client;\n{\n    PixmapPtr pMap;\n    DrawablePtr pDraw;\n    DepthPtr pDepth;\n    register int i, rc;\n    ShmDescPtr shmdesc;\n    REQUEST(xShmCreatePixmapReq);\n    unsigned int width, height, depth;\n    unsigned long size;\n\n    REQUEST_SIZE_MATCH(xShmCreatePixmapReq);\n    client->errorValue = stuff->pid;\n    if (!sharedPixmaps)\n\treturn BadImplementation;\n    LEGAL_NEW_RESOURCE(stuff->pid, client);\n    rc = dixLookupDrawable(&pDraw, stuff->drawable, client, M_ANY,\n\t\t\t   DixGetAttrAccess);\n    if (rc != Success)\n\treturn rc;\n\n    VERIFY_SHMPTR(stuff->shmseg, stuff->offset, TRUE, shmdesc, client);\n    \n    width = stuff->width;\n    height = stuff->height;\n    depth = stuff->depth;\n    if (!width || !height || !depth)\n    {\n\tclient->errorValue = 0;\n        return BadValue;\n    }\n    if (width > 32767 || height > 32767)\n\treturn BadAlloc;\n\n    if (stuff->depth != 1)\n    {\n        pDepth = pDraw->pScreen->allowedDepths;\n        for (i=0; i<pDraw->pScreen->numDepths; i++, pDepth++)\n\t   if (pDepth->depth == stuff->depth)\n               goto CreatePmap;\n\tclient->errorValue = stuff->depth;\n        return BadValue;\n    }\n\nCreatePmap:\n    size = PixmapBytePad(width, depth) * height;\n    if (sizeof(size) == 4 && BitsPerPixel(depth) > 8) {\n\tif (size < width * height)\n\t    return BadAlloc;\n\t/* thankfully, offset is unsigned */\n\tif (stuff->offset + size < size)\n\t    return BadAlloc;\n    }\n\n    VERIFY_SHMSIZE(shmdesc, stuff->offset, size, client);\n    pMap = (*shmFuncs[pDraw->pScreen->myNum]->CreatePixmap)(\n\t\t\t    pDraw->pScreen, stuff->width,\n\t\t\t    stuff->height, stuff->depth,\n\t\t\t    shmdesc->addr + stuff->offset);\n    if (pMap)\n    {\n\trc = XaceHook(XACE_RESOURCE_ACCESS, client, stuff->pid, RT_PIXMAP,\n\t\t      pMap, RT_NONE, NULL, DixCreateAccess);\n\tif (rc != Success) {\n\t    pDraw->pScreen->DestroyPixmap(pMap);\n\t    return rc;\n\t}\n\tdixSetPrivate(&pMap->devPrivates, shmPixmapPrivate, shmdesc);\n\tshmdesc->refcnt++;\n\tpMap->drawable.serialNumber = NEXT_SERIAL_NUMBER;\n\tpMap->drawable.id = stuff->pid;\n\tif (AddResource(stuff->pid, RT_PIXMAP, (pointer)pMap))\n\t{\n\t    return(client->noClientException);\n\t}\n\tpDraw->pScreen->DestroyPixmap(pMap);\n    }\n    return (BadAlloc);\n}", "target": 1, "cwe": ["CWE-189"], "project": "xserver", "commit_id": "be6c17fcf9efebc0bbcc3d9a25f8c5a2450c2161", "hash": 129275241199461482775430751894790125185, "size": 80, "message": "CVE-2007-6429: Always test for size+offset wrapping."}
-    test_code = test_code["func"]
-    """
-    test_code = 
-    static void foo(int a, int b, int c) {
-        int j;
-        int d = a + b + c;
-        int e;
-        bar(d, a, c);
-        baz(d, e);
-        barz(c, j);
-    }
-    """
     test_code = """
-    void async_request(TALLOC_CTX *mem_ctx, struct winbindd_child *child,
-                       struct winbindd_request *request,
-                       struct winbindd_response *response,
-                       void (*continuation)(void *private_data, BOOL success),
-                       void *private_data)
-    {
-        struct winbindd_async_request *state = TALLOC_P(mem_ctx, struct winbindd_async_request);
-
-        if (state == NULL) {
-            DEBUG(0, ("talloc failed\n"));
-            continuation(private_data, False);
+    void fibonacci(int *res, int n) {
+        if (n <= 0) {
             return;
         }
-
-        state->mem_ctx = mem_ctx;
-        state->child = child;
-        state->request = request;
-        state->response = response;
-        state->continuation = continuation;
-        state->private_data = private_data;
-
-        DLIST_ADD_END(child->requests, state, struct winbindd_async_request *);
-
-        int foo = 0;
-        bar(continuation(private_data, foo), False);
-
-        schedule_async_request(child);
-
-        return;
+        res[0] = 0;
+        res[1] = 1;
+        if (n > 1) {
+            if (n == 3) {
+                res[2] = 1;
+                return;
+            }
+            for(int i = 2; i <= n; i++) {
+                res[i] = res[i-1] + res[i-2];
+            }
+        }
     }
     """
-    # print(test_code)
+    test_codez = """
+    void fibonacci_with_do_while(int *res, int n) {
+        if (n <= 0) {
+            return;
+        }
+        res[0] = 0;
+        res[1] = 1;
+        if (n > 1) {
+            if (n == 3) {
+                res[2] = 1;
+                return;
+            }
+            int i = 2;
+            do {
+                res[i] = res[i-1] + res[i-2];
+                i++;
+            } while(i <= n);
+        }
+    }
+    """
 
     tree = parser.parse(bytes(test_code, "utf8"))
     root = tree.root_node
@@ -465,25 +492,8 @@ if __name__ == "__main__":
 
     root = find_function_node(root)
 
-    # print(test_code)
-    body = get_body(root)
-    # print(body.children)
-    call = body.children[-4]
-    print(call)
-    print(call.text)
-    print(n_variables_as_parameters(root))
-    '''
-    print(n_loops(root))
-    print(n_nested_loops(root))
-    print(max_nesting_level_of_loops(root))
-    print(n_param_variables(root))
-    print(n_variables_as_parameters(root))
-    n_pointer_arithmetic, n_variables, max_pointer_arithmetic = pointers(root)
-    print(n_pointer_arithmetic, n_variables, max_pointer_arithmetic)
-    print(n_control_structures(root))
-    print(n_nested_control_structures(root))
-    print(max_nesting_level_of_control_structures(root))
     control_dependent, data_dependent, variables = find_control_structures(root)
-    variables = len(variables)
-    print(control_dependent, data_dependent, variables)
-    '''
+    # variables = len(variables)
+    print(control_dependent)
+    print(data_dependent)
+    print(variables)
