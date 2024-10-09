@@ -17,12 +17,11 @@ CONTROL_STRUCTURES = {
 }
 
 def funcdef(root):
-    while root.type != "function_definition":
-        try:
-            root = root.children[0]
-        except IndexError:
-            print("No function definition found.")
-            return None
+    if root.type == "function_definition":
+        return root
+    for child in root.children:
+        if (result := funcdef(child)) is not None:
+            return result
     return root
 
 def find_funcdef(func):
@@ -133,6 +132,15 @@ def parameters(funcdef) -> list:
     # params = [c.child_by_field_name("declarator").child_by_field_name("identifier").text for c in param_list.children if c.type == "parameter_declaration"]
     return params
 
+def param_names(funcdef):
+    """Given a function, return a set of its parameter names"""
+    param_nodes = parameters(funcdef)
+    params = set()
+    for param in param_nodes:
+        declarator = param.child_by_field_name("declarator")
+        params.add(get_identifier(declarator))
+    return params
+
 @find_funcdef
 def n_param_variables(funcdef): # V1
     """Given a function, its number of arguments, without arguments for any function calls inside the function code"""
@@ -148,26 +156,22 @@ def get_identifier(declarator: Node):
     """Given a declaration node, return the name of the declared variable"""
     if declarator is None:
         return None
-    if declarator.type == "pointer_declarator":
-        return declarator.child_by_field_name("declarator").text
+    if declarator.type in {"pointer_declarator", "init_declarator"}:
+        return declarator.child_by_field_name("declarator").text.decode()
     elif declarator.type == "function_declarator":
         parenthesized_decl = declarator.child_by_field_name("declarator")
         pointer_decl = parenthesized_decl.child(1)
         decl = pointer_decl.child_by_field_name("declarator")
-        return decl.text
+        return decl.text.decode()
     else:
-        return declarator.text
+        return declarator.text.decode()
 
 
 @find_funcdef
 def n_variables_as_parameters(funcdef): # V2
     """The number of variables prepared by the function as parameters of function calls.
     This excludes the function's own parameters."""
-    param_nodes = parameters(funcdef)
-    params = set()
-    for param in param_nodes:
-        declarator = param.child_by_field_name("declarator")
-        params += get_identifier(declarator)
+    params = param_names(funcdef)
     variables = set()
     in_calls = set()
 
@@ -233,7 +237,8 @@ class n_variables_as_parameters(Metric):
 
     def _get_funcdef(self, root):
         root = funcdef(root)
-        self.params = {get_identifier(param.child_by_field_name("declarator")) for param in parameters(root)}
+        # self.params = {get_identifier(param.child_by_field_name("declarator")) for param in parameters(root)}
+        self.params = param_names(root)
         return root
 
 
@@ -369,18 +374,10 @@ for missing checks on the implicit else branches.
 """
 
 def extract_variables(node):
+    """Extract variables used in the predicate of the given control stucture node."""
     variables = set()
-    '''
-    if node.type == "function_definition":
-        declarator = node.child_by_field_name("declarator")
-        param_list = declarator.child_by_field_name("parameters")
-        variables |= extract_variables(param_list)
-    elif node.type == "function_declarator":
-        param_list = node.child_by_field_name("parameters")
-        variables |= extract_variables(param_list)
-    '''
     if node.type == "identifier" and node.text not in {b'True', b'False'} and node.text:
-        variables.add(node.text)
+        variables.add(node.text.decode())
     elif node.type == "declaration":
         declarators = node.children_by_field_name("declarator")
         for declarator in declarators:
@@ -414,60 +411,94 @@ def extract_variables(node):
         value = node.child_by_field_name("value")
         if value:
             variables |= extract_variables(value)
-    else: pass
-        # for child in node.children:
-        #     variables |= extract_variables(child)
-    
-    if b'res' in variables:
-        print(node.text)
-        print(node.type)
-        print()
     return variables
 
-
-
-# needs to count all control structures that come after a return in an if as control dependent too
-def find_control_structures(node, inside_control_structure=False, in_if=False, variables=set()):
+'''
+@find_funcdef
+def find_control_structures(root): # V8, V9, V10
     control_dependent = 0
     data_dependent = 0
-    if node.type in CONTROL_STRUCTURES:
-        if inside_control_structure:
+    variables = set()
+
+    params = param_names(root)
+    body = get_body(root)
+    def visit(node, inside_control_structure=False, variables=variables):
+        nonlocal control_dependent, data_dependent
+        new_vars = set()
+        if node.type in CONTROL_STRUCTURES:
+            if inside_control_structure:
+                print(node.text)
+                control_dependent += 1
+            in_predicate = extract_variables(node)
+            if len(in_predicate & params) != 0:
+                data_dependent += 1
+            inside_control_structure = True
+        elif node.type == "declaration":
+            declarator = node.child_by_field_name("declarator")
+            new_vars.add(get_identifier(declarator))
+        elif node.type == 'return_statement' and inside_control_structure:
             control_dependent += 1
-        vars_involved = extract_variables(node)
-        if vars_involved & variables:
-            data_dependent += 1
-        variables.update(vars_involved)
-
-    inside_control_structure = inside_control_structure or node.type in CONTROL_STRUCTURES
-    in_if = in_if or node.type == "if_statement"
-    if node.type == "return_statement" and in_if:
-        inside_control_structure = True
-    for child in node.children:
-        control_dependent_child, data_dependent_child, variables_child, in_cstr = find_control_structures(child, inside_control_structure=inside_control_structure, in_if=in_if, variables=variables)
-        control_dependent += control_dependent_child
-        data_dependent += data_dependent_child
-        if b'res' in variables_child and child.type in CONTROL_STRUCTURES:
-            print(child.text)
-            print(child.type)
-            print()
-        if child.type in CONTROL_STRUCTURES:
-            variables.update(variables_child)
-        inside_control_structure = in_cstr
-    return control_dependent, data_dependent, variables, inside_control_structure
-    
-@find_funcdef
-def find_control_structures_outer(funcdef):
-    param_nodes = parameters(funcdef)
-    params = set()
-    for param in param_nodes:
-        declarator = param.child_by_field_name("declarator")
-        params.add(get_identifier(declarator))
-    
-    body = get_body(funcdef)
-    control_dependent, data_dependent, variables, _ = find_control_structures(body, variables=params)
+        for child in node.children:
+            visit(child, inside_control_structure, variables | new_vars)
+    visit(body)
     return control_dependent, data_dependent, len(variables)
+'''
 
+@find_funcdef
+def control_dependent_control_structures(root): # V8
+    body = get_body(root)
+    after_return = False
 
+    def visit(node, inside_control_structure=False):
+        nonlocal after_return
+        indicator = 1 if (inside_control_structure or after_return) and node.type in CONTROL_STRUCTURES else 0
+        if node.type in CONTROL_STRUCTURES:
+            inside_control_structure = True
+        elif node.type == "return_statement":
+            if inside_control_structure:
+                after_return = True
+        return indicator + sum(visit(child, inside_control_structure) for child in node.children)
+    
+    return visit(body)
+
+@find_funcdef
+def data_dependent_control_structures(root): # V9
+    body = get_body(root)
+    variables = param_names(root)
+
+    def visit(node, scope=variables):
+        result = 0
+        if node.type in CONTROL_STRUCTURES:
+            in_predicate = extract_variables(node)
+            if len(in_predicate & variables) != 0:
+                result += 1
+            for child in node.children:
+                res, sc = visit(child, scope)
+                result += res
+                scope |= sc
+        elif node.type == "declaration":
+            declarator = node.child_by_field_name("declarator")
+            scope.add(get_identifier(declarator))
+        elif node.type == "compound_statement":
+            for child in node.children:
+                res, sc = visit(child, scope)
+                result += res
+                scope |= sc
+        return result, scope
+    
+    return visit(body)[0]
+
+def _vars_in_control_predicates(node):
+    return (extract_variables(node) if node.type in CONTROL_STRUCTURES else set()) \
+            .union(*(_vars_in_control_predicates(child) for child in node.children))
+
+@find_funcdef
+def vars_in_control_predicates(root): # V11
+   return len(_vars_in_control_predicates(root))
+
+        
+
+        
 
 if __name__ == "__main__":
 
