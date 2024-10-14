@@ -2,72 +2,70 @@ import tree_sitter_cpp as tscpp
 from tree_sitter import Language, Parser
 from tree_sitter import Node
 
+
 CPP_LANGUAGE = Language(tscpp.language())
 parser = Parser(CPP_LANGUAGE)
 
-LOOPS = {
-    "for_statement",
-    "while_statement",
-    "do_statement"
-}
 
-CONTROL_STRUCTURES = {
-    "if_statement",
-    "switch_statement"
-}
-
-def funcdef(root):
-    if root.type == "function_definition":
-        return root
-    for child in root.children:
-        if (result := funcdef(child)) is not None:
+def find_function_node(node):
+    if node.type == 'translation_unit':
+        children = node.children
+        for child in children:
+            if child.type == 'function_definition':
+                return child
+        for child in children:
+            if child.type == 'expression_statement':
+                call_expr, semicolon = child.children
+                raise NotImplementedError
+        
+    elif node.type == "function_definition":
+        return node
+    for child in node.children:
+        result = find_function_node(child)
+        if result:
             return result
-    return root
-
-def find_funcdef(func):
-    def wrapper(root):
-        root = funcdef(root)
-        return func(root)
-    return wrapper
+    return None
 
 
-def n_loops(node): # C2
-    increment = 1 if node.type in LOOPS else 0
-    return increment + sum(n_loops(child) for child in node.children)
-    
-def n_nested_loops(node, inside_loop=False): # C3
-    increment = 1 if node.type in LOOPS and inside_loop else 0
-    inside_loop = inside_loop or node.type in LOOPS
-    return increment + sum(n_nested_loops(child, inside_loop) for child in node.children)
+# version of the above, but with argument
+def register(recursive=False):
+    def decorator(metric):
+        varnames = metric.__code__.co_varnames
+        def wrapper(code, **kwargs):
+            if isinstance(code, str):
+                root = parser.parse(bytes(code, "utf8")).root_node
+            elif isinstance(code, Node):
+                root = code
+            if recursive:
+                return metric(root, **kwargs)
+            funcdef = find_function_node(root)
+            params, body = get_parameters(funcdef), get_body(funcdef)
+            # now the function metric is to be called with parameters (body, params), (body), or (params)
+            args = []
+            if "body" in varnames or 'node' in varnames:
+                args.append(body)
+            if "params" in varnames:
+                args.append(params)
+            return metric(*args, **kwargs)
+        return wrapper
+    return decorator
 
-def max_nesting_level_of_loops(node, level=0): # C4
-    increment = 1 if node.type in LOOPS else 0
-    return increment + max(
-        (max_nesting_level_of_loops(child, level + increment)
-            for child in node.children),
-        default=0)
-
-
-def parameters(funcdef) -> list:
-    """Given a function, return a list of its parameters"""
-    declarator = funcdef.child_by_field_name("declarator")
-    param_list = declarator.child_by_field_name("parameters")
-    return [c for c in param_list.children if c.type == "parameter_declaration"]
-
-def param_names(funcdef):
-    """Given a function, return a set of its parameter names"""
-    param_nodes = parameters(funcdef)
-    return {get_identifier(param.child_by_field_name("declarator")) for param in param_nodes}
-
-@find_funcdef
-def n_param_variables(funcdef): # V1
-    """Given a function, its number of arguments, without arguments for any function calls inside the function code"""
-    params = parameters(funcdef)
-    return len(params)
 
 def get_body(funcdef):
     """Given a function, return its body node"""
     return funcdef.child_by_field_name("body")
+
+
+def get_parameters(funcdef) -> set:
+    """Given a function, return a list of its parameters"""
+    declarator = funcdef.child_by_field_name("declarator")
+    param_list = declarator.child_by_field_name("parameters")
+    return {c for c in param_list.children if c.type == "parameter_declaration"}
+
+
+def param_names(params):
+    """Given a function, return a set of its parameter names"""
+    return {get_identifier(param.child_by_field_name("declarator")) for param in params}
 
 
 def get_identifier(declarator: Node, decode=True):
@@ -87,11 +85,42 @@ def get_identifier(declarator: Node, decode=True):
         return (identifier := declarator.text).decode() if decode else identifier
 
 
-@find_funcdef
-def n_variables_as_parameters(funcdef): # V2
+LOOPS = {
+    "for_statement",
+    "while_statement",
+    "do_statement"
+}
+
+@register(recursive=True)
+def n_loops(node): # C2
+    increment = 1 if node.type in LOOPS else 0
+    return increment + sum(n_loops(child) for child in node.children)
+
+
+@register(recursive=True)
+def n_nested_loops(node, inside_loop=False): # C3
+    increment = 1 if node.type in LOOPS and inside_loop else 0
+    inside_loop = inside_loop or node.type in LOOPS
+    return increment + sum(n_nested_loops(child, inside_loop=inside_loop) for child in node.children)
+
+
+@register(recursive=True)
+def max_nesting_level_of_loops(node, level=0): # C4
+    increment = 1 if node.type in LOOPS else 0
+    return increment + max(
+        (max_nesting_level_of_loops(child, level=level+increment) for child in node.children), default=0)
+
+
+@register()
+def n_param_variables(params): # V1
+    """Given a function, its number of arguments, without arguments for any function calls inside the function code"""
+    return len(params)
+
+
+@register()
+def n_variables_as_parameters(body, params): # V2
     """The number of variables prepared by the function as parameters of function calls.
     This excludes the function's own parameters."""
-    params = param_names(funcdef)
     variables = set()
     in_calls = set()
 
@@ -119,9 +148,9 @@ def n_variables_as_parameters(funcdef): # V2
                 # traverse(arg, in_call=True)
         for child in node.children:
             traverse(child)
-    funcbody = get_body(funcdef)
-    traverse(funcbody)
+    traverse(body)
     return len(variables & in_calls - params)
+
 
 def count_field_expressions(node) -> tuple[bytes, int]:
     count = 0
@@ -130,8 +159,8 @@ def count_field_expressions(node) -> tuple[bytes, int]:
         node = node.child_by_field_name("argument")
     return node.text, count
 
-@find_funcdef
-def pointers(node): # V3, V4, V5
+@register()
+def pointers(body, params): # V3, V4, V5
     r"""
     Pointer metrics (V3-V5) capture the manipulation of pointers, i.e., the number of pointer arithmetic, 
     the number of variables used in pointer arithmetic, and the maximum number of pointer arithmetic a variable 
@@ -140,37 +169,30 @@ def pointers(node): # V3, V4, V5
     and decrementing pointers (e.g., prt--) are all pointer arithmetics.
     """
 
-    params = parameters(node)
-    '''
-    for param in params:
-        decl = param.child_by_field_name("declarator")
-        if decl.type == "pointer_declarator":
-            variables[decl.child_by_field_name("declarator").text] = 0
-    '''
     variables = {decl.child_by_field_name("declarator").text: 0
                  for param in params 
                  if (decl := param.child_by_field_name("declarator")).type == "pointer_declarator"} 
 
-    def visit(node, variables=variables):
+    def visit(node, scope=set()):
         if node.type == "pointer_declarator":
             var = node.child_by_field_name("declarator").text
-            if var is not None and var not in variables:
-                variables[var] = 0
+            if var is not None and var not in scope:
+                scope[var] = 0
         elif node.type == "field_expression":
             var, count = count_field_expressions(node)
-            variables[var] = count + variables.get(var, 0)
+            scope[var] = count + scope.get(var, 0)
         elif node.type == "update_expression":
             arg = node.child_by_field_name("argument")
             var, count = count_field_expressions(arg)
             if (b'++' in node.text or b'--' in node.text) and count == 0:
                 count = 1
-            if var in variables:
-                variables[var] += count
+            if var in scope:
+                scope[var] += count
         else:
             for child in node.children:
-                visit(child, variables)
+                visit(child, scope)
 
-    visit(node)
+    visit(body, scope=variables)
     variables = {k: v for k, v in variables.items() if v > 0}
     return sum(variables.values()), len(variables), max(variables.values(), default=0)
 
@@ -185,18 +207,22 @@ CONTROL_STRUCTURES = {
     "try_statement"
 }
 
+@register(recursive=True)
 def n_control_structures(node): # V6
     if node.type in CONTROL_STRUCTURES:
         return 1 + sum(n_control_structures(child) for child in node.children)
     return sum(n_control_structures(child) for child in node.children)
 
 
+@register(recursive=True)
 def n_nested_control_structures(node, inside_control_structure=False): # V7
     """Number of control structures that are nested inside at least one other control structure."""
     if node.type in CONTROL_STRUCTURES:
         return (1 if inside_control_structure else 0) + sum(n_nested_control_structures(child, inside_control_structure=True) for child in node.children)
-    return sum(n_nested_control_structures(child, inside_control_structure) for child in node.children)
+    return sum(n_nested_control_structures(child, inside_control_structure=inside_control_structure) for child in node.children)
 
+
+@register(recursive=True)
 def max_nesting_level_of_control_structures(node): # V8
     if node.type in CONTROL_STRUCTURES:
         return 1 + max((max_nesting_level_of_control_structures(child) for child in node.children), default=0)
@@ -243,9 +269,8 @@ def extract_variables(node):
             variables |= extract_variables(value)
     return variables
 
-@find_funcdef
-def control_dependent_control_structures(root): # V8
-    body = get_body(root)
+@register()
+def control_dependent_control_structures(body): # V8
     after_return = False
 
     def visit(node, inside_control_structure=False):
@@ -260,10 +285,9 @@ def control_dependent_control_structures(root): # V8
     
     return visit(body)
 
-@find_funcdef
-def data_dependent_control_structures(root): # V9
-    body = get_body(root)
-    variables = param_names(root)
+@register()
+def data_dependent_control_structures(body, params): # V9
+    variables = param_names(params)
 
     def visit(node, scope=variables):
         result = 0
@@ -291,9 +315,9 @@ def _vars_in_control_predicates(node):
     return (extract_variables(node) if node.type in CONTROL_STRUCTURES else set()) \
             .union(*(_vars_in_control_predicates(child) for child in node.children))
 
-@find_funcdef
-def vars_in_control_predicates(root): # V11
-   return len(_vars_in_control_predicates(root))
+@register()
+def vars_in_control_predicates(body): # V11
+   return len(_vars_in_control_predicates(body))
 
         
 
@@ -307,29 +331,10 @@ if __name__ == "__main__":
     test_code = {"func": "ProcShmCreatePixmap(client)\n    register ClientPtr client;\n{\n    PixmapPtr pMap;\n    DrawablePtr pDraw;\n    DepthPtr pDepth;\n    register int i, rc;\n    ShmDescPtr shmdesc;\n    REQUEST(xShmCreatePixmapReq);\n    unsigned int width, height, depth;\n    unsigned long size;\n\n    REQUEST_SIZE_MATCH(xShmCreatePixmapReq);\n    client->errorValue = stuff->pid;\n    if (!sharedPixmaps)\n\treturn BadImplementation;\n    LEGAL_NEW_RESOURCE(stuff->pid, client);\n    rc = dixLookupDrawable(&pDraw, stuff->drawable, client, M_ANY,\n\t\t\t   DixGetAttrAccess);\n    if (rc != Success)\n\treturn rc;\n\n    VERIFY_SHMPTR(stuff->shmseg, stuff->offset, TRUE, shmdesc, client);\n    \n    width = stuff->width;\n    height = stuff->height;\n    depth = stuff->depth;\n    if (!width || !height || !depth)\n    {\n\tclient->errorValue = 0;\n        return BadValue;\n    }\n    if (width > 32767 || height > 32767)\n\treturn BadAlloc;\n\n    if (stuff->depth != 1)\n    {\n        pDepth = pDraw->pScreen->allowedDepths;\n        for (i=0; i<pDraw->pScreen->numDepths; i++, pDepth++)\n\t   if (pDepth->depth == stuff->depth)\n               goto CreatePmap;\n\tclient->errorValue = stuff->depth;\n        return BadValue;\n    }\n\nCreatePmap:\n    size = PixmapBytePad(width, depth) * height;\n    if (sizeof(size) == 4 && BitsPerPixel(depth) > 8) {\n\tif (size < width * height)\n\t    return BadAlloc;\n\t/* thankfully, offset is unsigned */\n\tif (stuff->offset + size < size)\n\t    return BadAlloc;\n    }\n\n    VERIFY_SHMSIZE(shmdesc, stuff->offset, size, client);\n    pMap = (*shmFuncs[pDraw->pScreen->myNum]->CreatePixmap)(\n\t\t\t    pDraw->pScreen, stuff->width,\n\t\t\t    stuff->height, stuff->depth,\n\t\t\t    shmdesc->addr + stuff->offset);\n    if (pMap)\n    {\n\trc = XaceHook(XACE_RESOURCE_ACCESS, client, stuff->pid, RT_PIXMAP,\n\t\t      pMap, RT_NONE, NULL, DixCreateAccess);\n\tif (rc != Success) {\n\t    pDraw->pScreen->DestroyPixmap(pMap);\n\t    return rc;\n\t}\n\tdixSetPrivate(&pMap->devPrivates, shmPixmapPrivate, shmdesc);\n\tshmdesc->refcnt++;\n\tpMap->drawable.serialNumber = NEXT_SERIAL_NUMBER;\n\tpMap->drawable.id = stuff->pid;\n\tif (AddResource(stuff->pid, RT_PIXMAP, (pointer)pMap))\n\t{\n\t    return(client->noClientException);\n\t}\n\tpDraw->pScreen->DestroyPixmap(pMap);\n    }\n    return (BadAlloc);\n}", "target": 1, "cwe": ["CWE-189"], "project": "xserver", "commit_id": "be6c17fcf9efebc0bbcc3d9a25f8c5a2450c2161", "hash": 129275241199461482775430751894790125185, "size": 80, "message": "CVE-2007-6429: Always test for size+offset wrapping."}
     test_code = test_code["func"]
     test_code = " */\nxmlNodePtr\nxmlXPathNextFollowing(xmlXPathParserContextPtr ctxt, xmlNodePtr cur) {\n    if ((ctxt == NULL) || (ctxt->context == NULL)) return(NULL);\n    if (cur != NULL && cur->children != NULL)\n        return cur->children ;\n    if (cur == NULL) cur = ctxt->context->node;\n    if (cur == NULL) return(NULL) ; /* ERROR */\n    if (cur->next != NULL) return(cur->next) ;\n    do {\n        cur = cur->parent;\n        if (cur == NULL) break;\n        if (cur == (xmlNodePtr) ctxt->context->doc) return(NULL);\n        if (cur->next != NULL) return(cur->next);\n    } while (cur != NULL);"
-
+    test_code = "xmlDictCreate(void) {\n    xmlDictPtr dict;\n\n    if (!xmlDictInitialized)\n        if (!xmlInitializeDict())\n            return(NULL);\n\n#ifdef DICT_DEBUG_PATTERNS\n    fprintf(stderr, \"C\");\n#endif\n\n    dict = xmlMalloc(sizeof(xmlDict));\n    if (dict) {\n        dict->ref_counter = 1;\n\n        dict->size = MIN_DICT_SIZE;\n\tdict->nbElems = 0;\n        dict->dict = xmlMalloc(MIN_DICT_SIZE * sizeof(xmlDictEntry));\n\tdict->strings = NULL;\n\tdict->subdict = NULL;\n        if (dict->dict) {\n\t    memset(dict->dict, 0, MIN_DICT_SIZE * sizeof(xmlDictEntry));\n\t    return(dict);\n        }\n        xmlFree(dict);\n    }\n    return(NULL);\n}"
 
     tree = parser.parse(bytes(test_code, "utf8"))
     root = tree.root_node
-
-    def find_function_node(node):
-        if node.type == 'translation_unit':
-            children = node.children
-            for child in children:
-                if child.type == 'function_definition':
-                    return child
-            for child in children:
-                if child.type == 'expression_statement':
-                    call_expr, semicolon = child.children
-
-            
-        elif node.type == "function_definition":
-            return node
-        for child in node.children:
-            result = find_function_node(child)
-            if result:
-                return result
-        return None
 
     root = find_function_node(root)
     from IPython import embed
