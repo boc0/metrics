@@ -4,13 +4,15 @@ from tree_sitter import Language, Parser, Node
 # import the following:
 
 from metrics import (
+    cyclomatic_complexity,
     n_loops,
     n_nested_loops,
     max_nesting_level_of_loops,
     n_param_variables,
     n_variables_as_parameters,
-    pointers,
-    n_control_structures,
+    n_pointer_arithmetic,
+    n_vars_in_pointer_arithmetic,
+    max_pointer_arithmetic,
     n_nested_control_structures,
     max_nesting_level_of_control_structures,
     control_dependent_control_structures,
@@ -19,7 +21,7 @@ from metrics import (
     extract_variables,
     param_names,
     get_parameters,
-    pointers,
+    n_if_without_else
 )
 
 CPP_LANGUAGE = Language(tscpp.language())
@@ -80,7 +82,8 @@ void foo() {
     }
 }
 """
-
+def test_cyclomatic_complexity():
+    assert cyclomatic_complexity(loops) == 11
 
 def test_n_loops():
     assert n_loops(loops) == 11
@@ -127,11 +130,26 @@ void fibonacci(int *res, int n) {
             res[i] = res[i-1] + res[i-2];
         }
     }
-}
-"""
+}"""
 
-def test_n_control_structures():
-    assert n_control_structures(fib) == 4
+fib_with_else = """
+void fibonacci(int *res, int n) {
+    if (n <= 0)
+        return;
+    else {
+        res[0] = 0;
+        res[1] = 1;
+        if (n > 1) {
+
+            if (n == 3) {
+                res[2] = 1;
+                return;
+            }
+            for(int i = 2; i <= n; i++)
+                res[i] = res[i-1] + res[i-2];
+        }
+    }
+}"""
 
 def test_n_nested_control_structures():
     assert n_nested_control_structures(fib) == 2
@@ -144,6 +162,11 @@ def test_control_dependent_control_structures():
 
 def test_data_dependent_control_structures():
     assert data_dependent_control_structures(fib) == 4
+    assert data_dependent_control_structures(fib_with_else) == 4
+
+def test_n_if_without_else():
+    assert n_if_without_else(fib) == 3
+    assert n_if_without_else(fib_with_else) == 2
 
 def test_vars_in_control_predicates():
     assert vars_in_control_predicates(fib) == 2
@@ -185,13 +208,12 @@ void foo() {
 """
 
 def test_pointers():
-    n_pointer_arithmetic, n_variables, max_pointer_arithmetic = pointers(test_code_pointers)
-    assert n_pointer_arithmetic == 3
-    assert n_variables == 2
-    assert max_pointer_arithmetic == 2
+    assert n_pointer_arithmetic(test_code_pointers) == 3
+    assert n_vars_in_pointer_arithmetic(test_code_pointers) == 2
+    assert max_pointer_arithmetic(test_code_pointers) == 2
 
 def test_pointers_big():
-    n_pointer_arithmetic, n_variables, max_pointer_arithmetic = pointers(test_func)
-    assert n_pointer_arithmetic == 45
-    assert n_variables == 2
-    assert max_pointer_arithmetic == 24
+    assert n_pointer_arithmetic(test_func) == 45
+    assert n_vars_in_pointer_arithmetic(test_func) == 2
+    assert max_pointer_arithmetic(test_func) == 24
+    
