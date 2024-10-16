@@ -1,0 +1,5 @@
+*.json
+*.tex
+*.csv
+*.pyc
+.DS_Store
